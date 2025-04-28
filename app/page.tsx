@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 
 export default function DocuSignDashboard() {
-  const [view, setView] = useState<"user" | "envelopes" | "zip">("user");
+  const [view, setView] = useState<"user" | "envelopes" | "zip" | "database">("user");
   const [userInfo, setUserInfo] = useState<any>(null);
   const [envelopes, setEnvelopes] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -26,9 +26,10 @@ export default function DocuSignDashboard() {
         }
 
         if (view === "envelopes") {
-          const res = await axios.get("/api/envelopes");
+          const res = await axios.get(`/api/envelopes?from_date=${fromDate}&to_date=${toDate}`);
           setEnvelopes(res.data.envelopes || []);
         }
+
       } catch (err: any) {
         console.error("Erro:", err);
         setError(err.response?.data?.error || "Erro desconhecido");
@@ -43,13 +44,37 @@ export default function DocuSignDashboard() {
       alert("Preencha as duas datas para baixar o ZIP.");
       return;
     }
-  
+
     try {
-      const res = await axios.get(
-        `/pages/api/download-zip/route.ts?from_date=${fromDate}&to_date=${toDate}`,
-        { responseType: "blob" }
-      );                
-  
+      try {
+        const res = await axios.get(
+          `/api/download-zip?from_date=${fromDate}&to_date=${toDate}`,
+          { responseType: "blob" }
+        );
+
+        // Validação: se o tipo não for ZIP, tenta converter pra JSON de erro
+        if (res.headers['content-type'] !== "application/zip") {
+          const text = await res.data.text();
+          const error = JSON.parse(text);
+          console.error("Erro no ZIP (backend):", error);
+          alert(error.message || "Erro ao gerar o ZIP.");
+          return;
+        }
+
+        const blob = new Blob([res.data], { type: "application/zip" });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `envelopes_${fromDate}_a_${toDate}.zip`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } catch (err: any) {
+        console.error("Erro ao baixar o ZIP:", err);
+        console.error("❌ Erro interno no download ZIP:", err?.response?.data || null);
+        alert("Erro ao baixar os arquivos.");
+      }
+
       const blob = new Blob([res.data], { type: "application/zip" });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -63,7 +88,10 @@ export default function DocuSignDashboard() {
       alert("Erro ao baixar os arquivos.");
     }
   };
-  
+
+  const [dbResults, setDbResults] = useState<any[]>([]);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [responsavelFilter, setResponsavelFilter] = useState("");
 
   return (
     <div className="max-w-6xl mx-auto mt-10 p-6 bg-white shadow-md rounded-xl">
@@ -79,6 +107,7 @@ export default function DocuSignDashboard() {
           <option value="user">Informações do Usuário</option>
           <option value="envelopes">Envelopes Finalizados</option>
           <option value="zip">Baixar Todos (ZIP)</option>
+          <option value="database">Consulta no Banco</option>
         </select>
       </div>
 
@@ -105,33 +134,97 @@ export default function DocuSignDashboard() {
         </table>
       )}
 
-      {view === "envelopes" && envelopes.length > 0 && (
-        <table className="table-auto w-full border border-gray-300 mt-4">
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="border px-4 py-2 text-left">Assunto</th>
-              <th className="border px-4 py-2 text-left">Status</th>
-              <th className="border px-4 py-2 text-left">PDF</th>
-            </tr>
-          </thead>
-          <tbody>
-            {envelopes.map((env) => (
-              <tr key={env.envelopeId}>
-                <td className="border px-4 py-2">{env.emailSubject || "Sem assunto"}</td>
-                <td className="border px-4 py-2 capitalize">{env.status}</td>
-                <td className="border px-4 py-2">
-                  <a
-                    href={`/pages/api/download-pdf.ts?envelopeId=${env.envelopeId}`}
-                    target="_blank"
-                    className="text-blue-600 hover:underline"
-                  >
-                    Baixar PDF
-                  </a>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+      {view === "envelopes" && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label className="block mb-1">Data Inicial:</label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="border rounded px-4 py-2 w-full"
+              />
+            </div>
+            <div>
+              <label className="block mb-1">Data Final:</label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="border rounded px-4 py-2 w-full"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={async () => {
+                  try {
+                    setError(null);
+                    const tokenRes = await axios.get("/api/token");
+                    const token = tokenRes.data.access_token;
+
+                    const res = await axios.get(
+                      `/api/envelopes?from_date=${fromDate}&to_date=${toDate}`,
+                      {
+                        headers: {
+                          Authorization: `Bearer ${token}`,
+                          Accept: "application/json",
+                        },
+                      }
+                    );
+                    setEnvelopes(res.data.envelopes || []);
+                  } catch (err: any) {
+                    console.error("Erro ao buscar envelopes:", err);
+                    setError("Erro ao buscar envelopes.");
+                  }
+                }}
+                className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-800 cursor-pointer"
+              >
+                Buscar Envelopes
+              </button>
+            </div>
+          </div>
+
+          {envelopes.length > 0 && (
+            <table className="table-auto w-full border border-gray-300 mt-4">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="border px-4 py-2 text-left">Assunto</th>
+                  <th className="border px-4 py-2 text-left">Status</th>
+                  <th className="border px-4 py-2 text-left">PDF</th>
+                  <th className="border px-4 py-2 text-left">Responsavel</th>
+                </tr>
+              </thead>
+              <tbody>
+                {envelopes.map((env) => (
+                  <tr key={env.envelopeId}>
+                    <td className="border px-4 py-2">{env.emailSubject || "Sem assunto"}</td>
+                    <td className="border px-4 py-2 capitalize">{env.status}</td>
+                    <td className="border px-4 py-2 flex">
+                      <a
+                        href={`/api/download-pdf?envelopeId=${env.envelopeId}`}
+                        target="_blank"
+                        className="text-blue-600 hover:underline mr-2"
+                      >
+                        Baixar PDF
+                      </a>
+
+                      <a
+                        href={`https://app.docusign.com/documents/details/${env.envelopeId}`}
+                        target="_blank"
+                        className="text-green-400 hover:underline"
+                      >
+                        Abrir relatório
+                      </a>
+                    </td>
+                    <td className="border px-4 py-2 capitalize">{env.sender.userName}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
       )}
 
       {view === "zip" && (
@@ -161,10 +254,118 @@ export default function DocuSignDashboard() {
 
           <button
             onClick={handleDownloadZip}
-            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
+            className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-800 cursor-pointer"
           >
             Baixar todos os PDFs como ZIP
           </button>
+        </div>
+      )}
+      {view === "database" && (
+        <div className="border border-gray-200 p-6 rounded bg-gray-50">
+          <h2 className="text-lg font-semibold mb-4">Consulta de Envelopes no Banco</h2>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label className="block mb-1">Data Inicial:</label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="border rounded px-4 py-2 w-full"
+              />
+            </div>
+            <div>
+              <label className="block mb-1">Data Final:</label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="border rounded px-4 py-2 w-full"
+              />
+            </div>
+            <div>
+              <label className="block mb-1">Status:</label>
+              <input
+                type="text"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="border rounded px-4 py-2 w-full"
+                placeholder="Ex: completed"
+              />
+            </div>
+            <div>
+              <label className="block mb-1">Responsável:</label>
+              <input
+                type="text"
+                value={responsavelFilter}
+                onChange={(e) => setResponsavelFilter(e.target.value)}
+                className="border rounded px-4 py-2 w-full"
+                placeholder="Ex: Lucas"
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={async () => {
+              try {
+                const res = await axios.get(`/api/database-envelopes`, {
+                  params: {
+                    from_date: fromDate,
+                    to_date: toDate,
+                    status: statusFilter,
+                    responsavel: responsavelFilter,
+                  },
+                });
+                console.log("📦 Resultados do banco:", res.data);
+                setDbResults(res.data);
+              } catch (err) {
+                console.error("Erro ao consultar o banco:", err);
+                alert("Erro ao buscar envelopes do banco.");
+              }
+            }}
+            className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-800 cursor-pointer"
+          >
+            Buscar
+          </button>
+
+          {dbResults.length > 0 && (
+            <table className="table-auto w-full border border-gray-300 mt-6">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="border px-4 py-2 text-left">Assunto</th>
+                  <th className="border px-4 py-2 text-left">Status</th>
+                  <th className="border px-4 py-2 text-left">Responsável</th>
+                  <th className="border px-4 py-2 text-left">PDF</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dbResults.map((item: any, i: number) => (
+                  <tr key={i}>
+                    <td className="border px-4 py-2">{item.EMAIL_SUBJECT}</td>
+                    <td className="border px-4 py-2">{item.STATUS}</td>
+                    <td className="border px-4 py-2">{item.RESPONSAVEL_NOME}</td>
+                    <td className="border px-4 py-2 space-x-2">
+                      <a
+                        href={`/api/download-from-db?envelopeId=${item.ENVELOPE_ID}`}
+                        target="_blank"
+                        className="text-blue-600 hover:underline"
+                      >
+                        Baixar PDF
+                      </a>
+                      <a
+                        href={`/api/download-from-db?envelopeId=${item.ENVELOPE_ID}&inline=true`}
+                        target="_blank"
+                        className="text-green-600 hover:underline"
+                      >
+                        Visualizar
+                      </a>
+
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </div>
