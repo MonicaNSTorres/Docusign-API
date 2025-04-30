@@ -23,10 +23,16 @@ export async function GET(req: NextRequest) {
 
     const result = await connection.execute(
       `
-      SELECT envelope_id, status, email_subject, responsavel_email, responsavel_nome,
-             TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS created_at,
-             TO_CHAR(completed_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS completed_at
-      FROM DOCUSIGN_ENVELOPES
+      SELECT 
+        envelope_id, 
+        case
+          when status = 'completed' then 'Concluído'
+        end as status, 
+        email_subject, 
+        responsavel_email, 
+        responsavel_nome,
+        TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS created_at,
+        TO_CHAR(completed_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS completed_at
       WHERE (:from_date IS NULL OR created_at >= TO_DATE(:from_date, 'YYYY-MM-DD'))
         AND (:to_date IS NULL OR created_at <= TO_DATE(:to_date, 'YYYY-MM-DD'))
         AND (:status IS NULL OR LOWER(status) LIKE '%' || LOWER(:status) || '%')

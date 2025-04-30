@@ -26,7 +26,7 @@ export default function DocuSignDashboard() {
         }
 
         if (view === "envelopes") {
-          const res = await axios.get(`/api/envelopes?from_date=${fromDate}&to_date=${toDate}`);
+          const res = await axios.get(`/api/envelopes?from_date=${fromDate}&to_date=${toDate}&status=any`);
           setEnvelopes(res.data.envelopes || []);
         }
 
@@ -48,7 +48,7 @@ export default function DocuSignDashboard() {
     try {
       try {
         const res = await axios.get(
-          `/api/download-zip?from_date=${fromDate}&to_date=${toDate}`,
+          `/api/download-zip?from_date=${fromDate}&to_date=${toDate}&status=any`,
           { responseType: "blob" }
         );
 
@@ -71,7 +71,7 @@ export default function DocuSignDashboard() {
         link.remove();
       } catch (err: any) {
         console.error("Erro ao baixar o ZIP:", err);
-        console.error("❌ Erro interno no download ZIP:", err?.response?.data || null);
+        console.error("Erro interno no download ZIP:", err?.response?.data || null);
         alert("Erro ao baixar os arquivos.");
       }
 
@@ -112,6 +112,8 @@ export default function DocuSignDashboard() {
       </div>
 
       {error && <p className="text-red-500">Erro: {error}</p>}
+      
+      <span className="font-semibold text-lg mb-5">{`Total de registros: ${envelopes.length}`}</span>
 
       {view === "user" && userInfo && (
         <table className="table-auto w-full border border-gray-300">
@@ -165,7 +167,7 @@ export default function DocuSignDashboard() {
                     const token = tokenRes.data.access_token;
 
                     const res = await axios.get(
-                      `/api/envelopes?from_date=${fromDate}&to_date=${toDate}`,
+                      `/api/envelopes?from_date=${fromDate}&to_date=${toDate}&status=any`,
                       {
                         headers: {
                           Authorization: `Bearer ${token}`,
