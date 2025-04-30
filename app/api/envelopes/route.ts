@@ -14,19 +14,36 @@ export async function GET(req: NextRequest) {
     const token = await generateToken();
     const accountId = "3d5e52ce-6726-43ea-96ef-5829b5394faa";
 
-    const res = await axios.get(
-      `https://na3.docusign.net/restapi/v2.1/accounts/${accountId}/envelopes?from_date=${from_date}&to_date=${to_date}&status=any`,
-      {
+    let allEnvelopes: any[] = [];
+    let startPosition = 0;
+    const pageSize = 100;
+
+    while (true) {
+      const url = `https://na3.docusign.net/restapi/v2.1/accounts/${accountId}/envelopes?from_date=${from_date}&to_date=${to_date}&status=any&include=recipients,folders&start_position=${startPosition + 1}&count=${pageSize}`;
+      console.log(`➡️ Buscando página a partir de ${startPosition + 1}`);
+
+      const res = await axios.get(url, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json",
         },
-      }
-    );
+      });
 
-    return new Response(JSON.stringify({ envelopes: res.data.envelopes }), { status: 200 });
+      const envelopes = res.data.envelopes || [];
+      if (envelopes.length === 0) break;
+
+      allEnvelopes = allEnvelopes.concat(envelopes);
+      startPosition += pageSize;
+
+      if (envelopes.length < pageSize) break; // última página
+    }
+
+    console.log("✅ Total final:", allEnvelopes.length);
+
+    return new Response(JSON.stringify({ envelopes: allEnvelopes }), { status: 200 });
   } catch (error: any) {
-    console.error("Erro ao buscar envelopes:", error.response?.data || error.message);
-    return new Response(JSON.stringify({ error: "Erro ao buscar envelopes" }), { status: 500 });
+    const erroCru = error.response?.data || error.message;
+    console.error("❌ ERRO no backend /api/envelopes:", erroCru);
+    return new Response(JSON.stringify({ error: "Erro ao buscar envelopes", erroCru }), { status: 500 });
   }
 }

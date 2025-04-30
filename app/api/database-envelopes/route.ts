@@ -25,9 +25,7 @@ export async function GET(req: NextRequest) {
       `
       SELECT 
         envelope_id, 
-        case
-          when status = 'completed' then 'Concluído'
-        end as status, 
+        status, 
         email_subject, 
         responsavel_email, 
         responsavel_nome,

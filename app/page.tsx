@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 
 export default function DocuSignDashboard() {
@@ -10,6 +10,17 @@ export default function DocuSignDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
+
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const itensPorPagina = 20;
+
+  const totalPaginas = useMemo(() => Math.ceil(envelopes.length / itensPorPagina), [envelopes.length]);
+
+  const envelopesPaginados = useMemo(() => {
+    const inicio = (paginaAtual - 1) * itensPorPagina;
+    const fim = paginaAtual * itensPorPagina;
+    return envelopes.slice(inicio, fim);
+  }, [envelopes, paginaAtual]);
 
   useEffect(() => {
     async function carregarDados() {
@@ -26,10 +37,15 @@ export default function DocuSignDashboard() {
         }
 
         if (view === "envelopes") {
-          const res = await axios.get(`/api/envelopes?from_date=${fromDate}&to_date=${toDate}&status=any`);
-          setEnvelopes(res.data.envelopes || []);
-        }
+          const fDate = fromDate || "2020-01-01";
+          const tDate = toDate || new Date().toISOString().split("T")[0];
 
+          console.log("📅 Enviando filtros para /api/envelopes:", { fDate, tDate });
+
+          const res = await axios.get(`/api/envelopes?from_date=${fDate}&to_date=${tDate}&status=any`);
+          setEnvelopes(res.data.envelopes || []);
+          setPaginaAtual(1); // Reinicia para a primeira página
+        }
       } catch (err: any) {
         console.error("Erro:", err);
         setError(err.response?.data?.error || "Erro desconhecido");
@@ -47,12 +63,10 @@ export default function DocuSignDashboard() {
 
     try {
       try {
-        const res = await axios.get(
-          `/api/download-zip?from_date=${fromDate}&to_date=${toDate}&status=any`,
-          { responseType: "blob" }
-        );
+        const res = await axios.get(`/api/download-zip?from_date=${fromDate}&to_date=${toDate}`, {
+          responseType: "blob"
+        });        
 
-        // Validação: se o tipo não for ZIP, tenta converter pra JSON de erro
         if (res.headers['content-type'] !== "application/zip") {
           const text = await res.data.text();
           const error = JSON.parse(text);
@@ -74,15 +88,6 @@ export default function DocuSignDashboard() {
         console.error("Erro interno no download ZIP:", err?.response?.data || null);
         alert("Erro ao baixar os arquivos.");
       }
-
-      const blob = new Blob([res.data], { type: "application/zip" });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `envelopes_${fromDate}_a_${toDate}.zip`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
     } catch (err) {
       console.error("Erro ao baixar o ZIP:", err);
       alert("Erro ao baixar os arquivos.");
@@ -92,6 +97,7 @@ export default function DocuSignDashboard() {
   const [dbResults, setDbResults] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [responsavelFilter, setResponsavelFilter] = useState("");
+  console.log("Enviando filtros para /api/envelopes:", { fromDate, toDate });
 
   return (
     <div className="max-w-6xl mx-auto mt-10 p-6 bg-white shadow-md rounded-xl">
@@ -101,7 +107,7 @@ export default function DocuSignDashboard() {
         <label className="block mb-2 font-semibold">Escolha o que deseja visualizar:</label>
         <select
           value={view}
-          onChange={(e) => setView(e.target.value as "user" | "envelopes" | "zip")}
+          onChange={(e) => setView(e.target.value as "user" | "envelopes" | "zip" | "database")}
           className="border border-gray-300 rounded px-4 py-2 w-full"
         >
           <option value="user">Informações do Usuário</option>
@@ -112,34 +118,12 @@ export default function DocuSignDashboard() {
       </div>
 
       {error && <p className="text-red-500">Erro: {error}</p>}
-      
+
       <span className="font-semibold text-lg mb-5">{`Total de registros: ${envelopes.length}`}</span>
-
-      {view === "user" && userInfo && (
-        <table className="table-auto w-full border border-gray-300">
-          <tbody>
-            <tr><td className="border px-4 py-2 font-semibold">Nome</td><td className="border px-4 py-2">{userInfo.name}</td></tr>
-            <tr><td className="border px-4 py-2 font-semibold">E-mail</td><td className="border px-4 py-2">{userInfo.email}</td></tr>
-            <tr><td className="border px-4 py-2 font-semibold">User ID</td><td className="border px-4 py-2">{userInfo.sub}</td></tr>
-            <tr><td className="border px-4 py-2 font-semibold">Data de Criação</td><td className="border px-4 py-2">{userInfo.created}</td></tr>
-            {userInfo.accounts?.map((acc: any, i: number) => (
-              <tr key={i}>
-                <td className="border px-4 py-2 font-semibold">Conta</td>
-                <td className="border px-4 py-2">
-                  <div>Nome: {acc.account_name}</div>
-                  <div>ID: {acc.account_id}</div>
-                  <div>Base URI: {acc.base_uri}</div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
 
       {view === "envelopes" && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
             <div>
               <label className="block mb-1">Data Inicial:</label>
               <input
@@ -176,6 +160,7 @@ export default function DocuSignDashboard() {
                       }
                     );
                     setEnvelopes(res.data.envelopes || []);
+                    setPaginaAtual(1);
                   } catch (err: any) {
                     console.error("Erro ao buscar envelopes:", err);
                     setError("Erro ao buscar envelopes.");
@@ -183,48 +168,75 @@ export default function DocuSignDashboard() {
                 }}
                 className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-800 cursor-pointer"
               >
-                Buscar Envelopes
+                Buscar
               </button>
             </div>
           </div>
 
           {envelopes.length > 0 && (
-            <table className="table-auto w-full border border-gray-300 mt-4">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="border px-4 py-2 text-left">Assunto</th>
-                  <th className="border px-4 py-2 text-left">Status</th>
-                  <th className="border px-4 py-2 text-left">PDF</th>
-                  <th className="border px-4 py-2 text-left">Responsavel</th>
-                </tr>
-              </thead>
-              <tbody>
-                {envelopes.map((env) => (
-                  <tr key={env.envelopeId}>
-                    <td className="border px-4 py-2">{env.emailSubject || "Sem assunto"}</td>
-                    <td className="border px-4 py-2 capitalize">{env.status}</td>
-                    <td className="border px-4 py-2 flex">
-                      <a
-                        href={`/api/download-pdf?envelopeId=${env.envelopeId}`}
-                        target="_blank"
-                        className="text-blue-600 hover:underline mr-2"
-                      >
-                        Baixar PDF
-                      </a>
+            <>
+              <div className="flex justify-between items-center mb-4">
+                <button
+                  onClick={() => setPaginaAtual((prev) => Math.max(prev - 1, 1))}
+                  className="px-4 py-2 bg-gray-300 rounded disabled:opacity-50"
+                  disabled={paginaAtual === 1}
+                >
+                  Anterior
+                </button>
+                <span>Página {paginaAtual}</span>
+                <button
+                  onClick={() => setPaginaAtual((prev) =>
+                    prev * itensPorPagina < envelopes.length ? prev + 1 : prev
+                  )}
+                  className="px-4 py-2 bg-gray-300 rounded disabled:opacity-50"
+                  disabled={paginaAtual * itensPorPagina >= envelopes.length}
+                >
+                  Próxima
+                </button>
+              </div>
 
-                      <a
-                        href={`https://app.docusign.com/documents/details/${env.envelopeId}`}
-                        target="_blank"
-                        className="text-green-400 hover:underline"
-                      >
-                        Abrir relatório
-                      </a>
-                    </td>
-                    <td className="border px-4 py-2 capitalize">{env.sender.userName}</td>
+              <table className="table-auto w-full border border-gray-300 mt-4">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border px-4 py-2 text-left">Data</th>
+                    <th className="border px-4 py-2 text-left">Assunto</th>
+                    <th className="border px-4 py-2 text-left">Status</th>
+                    <th className="border px-4 py-2 text-left">PDF</th>
+                    <th className="border px-4 py-2 text-left">Responsável</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {envelopesPaginados.map((env) => (
+                    <tr key={env.envelopeId}>
+                      <td className="border px-4 py-2">
+                        {env.createdDateTime
+                          ? new Date(env.createdDateTime).toLocaleDateString("pt-BR")
+                          : "—"}
+                      </td>
+                      <td className="border px-4 py-2">{env.emailSubject || "Sem assunto"}</td>
+                      <td className="border px-4 py-2 capitalize">{env.status}</td>
+                      <td className="border px-4 py-2 flex">
+                        <a
+                          href={`/api/download-pdf?envelopeId=${env.envelopeId}`}
+                          target="_blank"
+                          className="text-blue-600 hover:underline mr-2"
+                        >
+                          Baixar PDF
+                        </a>
+                        <a
+                          href={`https://app.docusign.com/documents/details/${env.envelopeId}`}
+                          target="_blank"
+                          className="text-green-400 hover:underline"
+                        >
+                          Abrir relatório
+                        </a>
+                      </td>
+                      <td className="border px-4 py-2 capitalize">{env.sender?.userName}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </>
       )}
