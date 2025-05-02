@@ -1,18 +1,22 @@
 import oracledb from "oracledb";
+import dotenv from "dotenv";
 
-async function testConnection() {
+dotenv.config();
+
+export async function GET() {
   try {
-    const conn = await oracledb.getConnection({
-      user: "SYSTEM",
-      password: "Cr3$$3m00",
-      connectString: "10.25.214.216:1521/CDB", // ajuste aqui se for XEPDB1
+    const connection = await oracledb.getConnection({
+      user: process.env.ORACLE_USER,
+      password: process.env.ORACLE_PASSWORD,
+      connectString: process.env.ORACLE_CONNECTION_STRING,
     });
 
-    console.log("✅ Conectado!");
-    await conn.close();
+    console.log("Conectado com sucesso!");
+    await connection.close();
+
+    return new Response("Conexão OK!", { status: 200 });
   } catch (err) {
-    console.error("❌ Erro ao conectar:", err);
+    console.error("Erro de conexão:", err);
+    return new Response("Erro interno no servidor", { status: 500 });
   }
 }
-
-testConnection();

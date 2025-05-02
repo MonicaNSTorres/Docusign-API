@@ -40,7 +40,7 @@ export default function DocuSignDashboard() {
           const fDate = fromDate || "2020-01-01";
           const tDate = toDate || new Date().toISOString().split("T")[0];
 
-          console.log("📅 Enviando filtros para /api/envelopes:", { fDate, tDate });
+          console.log("Enviando filtros para /api/envelopes:", { fDate, tDate });
 
           const res = await axios.get(`/api/envelopes?from_date=${fDate}&to_date=${tDate}&status=any`);
           setEnvelopes(res.data.envelopes || []);
@@ -98,6 +98,13 @@ export default function DocuSignDashboard() {
   const [statusFilter, setStatusFilter] = useState("");
   const [responsavelFilter, setResponsavelFilter] = useState("");
   console.log("Enviando filtros para /api/envelopes:", { fromDate, toDate });
+
+  console.log({
+    user: process.env.ORACLE_USER,
+    password: process.env.ORACLE_PASSWORD,
+    connectString: process.env.ORACLE_CONNECTION_STRING,
+  });
+  
 
   return (
     <div className="max-w-6xl mx-auto mt-10 p-6 bg-white shadow-md rounded-xl">
