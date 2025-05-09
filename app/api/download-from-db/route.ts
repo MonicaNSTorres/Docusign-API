@@ -1,9 +1,8 @@
-import { NextRequest } from "next/server";
-import oracledb from "oracledb";
-
 process.env.NODE_ORACLEDB_DISABLE_AZURE_CONFIG = "true";
 process.env.NODE_ORACLEDB_DISABLE_OCI_CONFIG = "true";
 process.env.NODE_ORACLEDB_DISABLE_OAUTH_TOKEN = "true";
+
+import { NextRequest } from "next/server";
 
 const dbConfig = {
   user: process.env.ORACLE_USER,
@@ -21,6 +20,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const oracledb = require("oracledb");
     const connection = await oracledb.getConnection(dbConfig);
 
     const result = await connection.execute(

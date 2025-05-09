@@ -1,6 +1,6 @@
-
-process.env.NODE_ORACLEDB_DISABLE_OCI_CONFIG = "true";
 process.env.NODE_ORACLEDB_DISABLE_AZURE_CONFIG = "true";
+process.env.NODE_ORACLEDB_DISABLE_OCI_CONFIG = "true";
+process.env.NODE_ORACLEDB_DISABLE_OAUTH_TOKEN = "true";
 
 export async function getOracleConnection() {
   const oracledb = await import("oracledb");

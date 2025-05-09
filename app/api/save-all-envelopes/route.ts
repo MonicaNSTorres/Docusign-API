@@ -4,32 +4,13 @@ process.env.NODE_ORACLEDB_DISABLE_OAUTH_TOKEN = "true";
 
 import { NextRequest } from "next/server";
 import axios from "axios";
-import JSZip from "jszip";
 import { generateToken } from "@/lib/docusign/token";
-import { setProgress } from "@/lib/progressStore";
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const from_date = searchParams.get("from_date");
-  const to_date = searchParams.get("to_date");
-
-  if (!from_date || !to_date) {
-    return new Response(JSON.stringify({ error: "Parâmetros from_date e to_date são obrigatórios." }), {
-      status: 400,
-    });
-  }
-
-  const diffDias = (new Date(to_date).getTime() - new Date(from_date).getTime()) / (1000 * 60 * 60 * 24);
-  if (diffDias > 61) {
-    return new Response(JSON.stringify({ error: "Selecione um intervalo de até 2 meses por vez para o download." }), {
-      status: 400,
-    });
-  }
-
   try {
     const token = await generateToken();
     const accountId = "3d5e52ce-6726-43ea-96ef-5829b5394faa";
@@ -37,8 +18,15 @@ export async function GET(req: NextRequest) {
     let startPosition = 0;
     let allEnvelopes: any[] = [];
 
+    const from_date = "2022-08-01";
+    //const to_date = new Date().toISOString().split("T")[0];
+    const to_date = "2022-08-31";
+
+    console.log("🔍 Buscando envelopes de:", from_date, "até", to_date);
+
     while (true) {
       const url = `https://na3.docusign.net/restapi/v2.1/accounts/${accountId}/envelopes?from_date=${from_date}&to_date=${to_date}&status=any&start_position=${startPosition + 1}&count=${pageSize}`;
+
       const res = await axios.get(url, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -53,9 +41,10 @@ export async function GET(req: NextRequest) {
       startPosition += pageSize;
       if (envelopes.length < pageSize) break;
 
-      await delay(300);
+      await delay(300); //evita rate limit
     }
 
+    console.log(`📦 Total de envelopes: ${allEnvelopes.length}`);
     if (allEnvelopes.length === 0) {
       return new Response(JSON.stringify({ error: "Nenhum envelope encontrado." }), { status: 404 });
     }
@@ -66,8 +55,6 @@ export async function GET(req: NextRequest) {
       password: process.env.ORACLE_PASSWORD,
       connectString: process.env.ORACLE_CONNECTION_STRING,
     });
-
-    const zip = new JSZip();
 
     for (let i = 0; i < allEnvelopes.length; i++) {
       const env = allEnvelopes[i];
@@ -96,13 +83,11 @@ export async function GET(req: NextRequest) {
               continue;
             }
 
-            console.error(`Erro da API DocuSign no envelope ${env.envelopeId}:`, jsonError);
+            console.error(`❌ Erro da API no envelope ${env.envelopeId}:`, jsonError);
             break;
           }
 
           const buffer = Buffer.from(pdf.data);
-          const filename = `${env.emailSubject?.replace(/[^\w\d]/g, "_") || "envelope"}_${env.envelopeId}.pdf`;
-          zip.file(filename, buffer);
 
           await connection.execute(
             `MERGE INTO DOCUSIGN_ENVELOPES e
@@ -127,12 +112,10 @@ export async function GET(req: NextRequest) {
           );
 
           sucesso = true;
-
-          const percent = Math.round(((i + 1) / allEnvelopes.length) * 100);
-          setProgress(from_date, to_date, percent);
-
+          const progresso = `${i + 1}/${allEnvelopes.length}`;
+          process.stdout.write(`\r✅ Salvos: ${progresso}`);
         } catch (err: any) {
-          console.error(`Erro ao processar envelope ${env.envelopeId}:`, err?.message || err);
+          console.error(`❌ Falha no envelope ${env.envelopeId}:`, err.message || err);
           break;
         }
       }
@@ -140,22 +123,16 @@ export async function GET(req: NextRequest) {
 
     await connection.close();
 
-    setProgress(from_date, to_date, 100);
+    console.log(`\n🎉 Finalizado com sucesso.`);
 
-    const zipContent = await zip.generateAsync({ type: "nodebuffer" });
-
-    return new Response(zipContent, {
+    return new Response(JSON.stringify({ sucesso: true, total: allEnvelopes.length }), {
       status: 200,
-      headers: {
-        "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="envelopes_${from_date}_a_${to_date}.zip"`,
-      },
     });
 
   } catch (error: any) {
-    console.error("Erro interno no download ZIP:", error);
+    console.error("🚨 Erro geral:", error);
     return new Response(
-      JSON.stringify({ error: "Erro interno", details: error?.message || "Erro desconhecido" }),
+      JSON.stringify({ error: "Erro interno", detalhes: error.message }),
       { status: 500 }
     );
   }

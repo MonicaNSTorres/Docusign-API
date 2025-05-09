@@ -7,9 +7,14 @@ export default function DocuSignDashboard() {
   const [view, setView] = useState<"user" | "envelopes" | "zip" | "database">("user");
   const [userInfo, setUserInfo] = useState<any>(null);
   const [envelopes, setEnvelopes] = useState<any[]>([]);
+  const [dbResults, setDbResults] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
+
+  const [progress, setProgress] = useState<number | null>(null);
+  const [totalLotes, setTotalLotes] = useState<number>(0);
+  const [dbProgress, setDbProgress] = useState<number | null>(null);
 
   const [paginaAtual, setPaginaAtual] = useState(1);
   const itensPorPagina = 20;
@@ -21,6 +26,13 @@ export default function DocuSignDashboard() {
     const fim = paginaAtual * itensPorPagina;
     return envelopes.slice(inicio, fim);
   }, [envelopes, paginaAtual]);
+
+  const dbResultsPaginados = useMemo(() => {
+  const inicio = (paginaAtual - 1) * itensPorPagina;
+  const fim = paginaAtual * itensPorPagina;
+  return dbResults.slice(inicio, fim);
+}, [dbResults, paginaAtual]);
+
 
   useEffect(() => {
     async function carregarDados() {
@@ -44,7 +56,7 @@ export default function DocuSignDashboard() {
 
           const res = await axios.get(`/api/envelopes?from_date=${fDate}&to_date=${tDate}&status=any`);
           setEnvelopes(res.data.envelopes || []);
-          setPaginaAtual(1); // Reinicia para a primeira página
+          setPaginaAtual(1);
         }
       } catch (err: any) {
         console.error("Erro:", err);
@@ -62,39 +74,56 @@ export default function DocuSignDashboard() {
     }
 
     try {
-      try {
-        const res = await axios.get(`/api/download-zip?from_date=${fromDate}&to_date=${toDate}`, {
-          responseType: "blob"
-        });        
+      setProgress(0);
+      const evtSource = new EventSource(`/api/download-zip/progress?from_date=${fromDate}&to_date=${toDate}`);
 
-        if (res.headers['content-type'] !== "application/zip") {
-          const text = await res.data.text();
-          const error = JSON.parse(text);
-          console.error("Erro no ZIP (backend):", error);
-          alert(error.message || "Erro ao gerar o ZIP.");
-          return;
+      evtSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (typeof data.progress === "number") {
+          setProgress(data.progress);
         }
 
-        const blob = new Blob([res.data], { type: "application/zip" });
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", `envelopes_${fromDate}_a_${toDate}.zip`);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      } catch (err: any) {
-        console.error("Erro ao baixar o ZIP:", err);
-        console.error("Erro interno no download ZIP:", err?.response?.data || null);
-        alert("Erro ao baixar os arquivos.");
-      }
+        if (data.complete) {
+          evtSource.close();
+
+          // baixa o ZIP final quando completo
+          axios
+            .get(`/api/download-zip?from_date=${fromDate}&to_date=${toDate}`, {
+              responseType: "blob",
+            })
+            .then((res) => {
+              const blob = new Blob([res.data], { type: "application/zip" });
+              const url = window.URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.setAttribute("download", `envelopes_${fromDate}_a_${toDate}.zip`);
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+              setProgress(null);
+            })
+            .catch((err) => {
+              console.error("Erro ao baixar o ZIP:", err);
+              alert("Erro ao baixar os arquivos.");
+              setProgress(null);
+            });
+        }
+      };
+
+      evtSource.onerror = (err) => {
+        console.error("Erro no progresso do download:", err);
+        evtSource.close();
+        alert("Erro durante o progresso do download.");
+        setProgress(null);
+      };
     } catch (err) {
-      console.error("Erro ao baixar o ZIP:", err);
-      alert("Erro ao baixar os arquivos.");
+      console.error("Erro ao iniciar o download:", err);
+      alert("Erro ao iniciar o download.");
+      setProgress(null);
     }
   };
 
-  const [dbResults, setDbResults] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [responsavelFilter, setResponsavelFilter] = useState("");
   console.log("Enviando filtros para /api/envelopes:", { fromDate, toDate });
@@ -104,7 +133,6 @@ export default function DocuSignDashboard() {
     password: process.env.ORACLE_PASSWORD,
     connectString: process.env.ORACLE_CONNECTION_STRING,
   });
-  
 
   return (
     <div className="max-w-6xl mx-auto mt-10 p-6 bg-white shadow-md rounded-xl">
@@ -126,7 +154,9 @@ export default function DocuSignDashboard() {
 
       {error && <p className="text-red-500">Erro: {error}</p>}
 
-      <span className="font-semibold text-lg mb-5">{`Total de registros: ${envelopes.length}`}</span>
+      {/*{dbProgress === null && (
+        <span className="font-semibold text-lg mb-5">{`Total de registros: ${envelopes.length}`}</span>
+      )}*/}
 
       {view === "envelopes" && (
         <>
@@ -222,20 +252,20 @@ export default function DocuSignDashboard() {
                       </td>
                       <td className="border px-4 py-2">{env.emailSubject || "Sem assunto"}</td>
                       <td className="border px-4 py-2 capitalize">{env.status}</td>
-                      <td className="border px-4 py-2 flex">
+                      <td className="border px-4 py-2 grid items-center text-center">
                         <a
                           href={`/api/download-pdf?envelopeId=${env.envelopeId}`}
                           target="_blank"
                           className="text-blue-600 hover:underline mr-2"
                         >
-                          Baixar PDF
+                          Baixar
                         </a>
                         <a
                           href={`https://app.docusign.com/documents/details/${env.envelopeId}`}
                           target="_blank"
                           className="text-green-400 hover:underline"
                         >
-                          Abrir relatório
+                          Abrir
                         </a>
                       </td>
                       <td className="border px-4 py-2 capitalize">{env.sender?.userName}</td>
@@ -281,6 +311,39 @@ export default function DocuSignDashboard() {
           </button>
         </div>
       )}
+      {progress !== null && (
+        <div className="mt-4">
+          <div className="w-full bg-gray-300 rounded-full h-4 overflow-hidden shadow-inner">
+            <div
+              className="h-full bg-gradient-to-r from-green-400 to-green-600 transition-all duration-700 ease-in-out"
+              style={{
+                width: `${(progress / totalLotes) * 100}%`,
+              }}
+            />
+          </div>
+          <p className="text-center text-sm text-gray-700 mt-2">
+            Buscando ZIPs: {progress} de {totalLotes}
+          </p>
+        </div>
+      )}
+      {view === "database" && dbProgress !== null && (
+        <div className="mt-4">
+          <div className="w-full bg-gray-300 rounded-full h-4 overflow-hidden shadow-inner">
+            <div
+              className="h-full transition-all duration-700 ease-in-out rounded-full"
+              style={{
+                width: `${dbProgress}%`,
+                backgroundColor: `rgb(${255 - dbProgress * 1.5}, ${dbProgress * 2.5}, ${100})`,
+              }}
+            />
+          </div>
+          <p className="text-center text-sm text-gray-700 mt-2">
+            Carregando registros do banco de dados...
+          </p>
+        </div>
+      )}
+
+
       {view === "database" && (
         <div className="border border-gray-200 p-6 rounded bg-gray-50">
           <h2 className="text-lg font-semibold mb-4">Consulta de Envelopes no Banco</h2>
@@ -329,6 +392,7 @@ export default function DocuSignDashboard() {
           <button
             onClick={async () => {
               try {
+                setDbProgress(10);
                 const res = await axios.get(`/api/database-envelopes`, {
                   params: {
                     from_date: fromDate,
@@ -339,53 +403,90 @@ export default function DocuSignDashboard() {
                 });
                 console.log("📦 Resultados do banco:", res.data);
                 setDbResults(res.data);
+                setPaginaAtual(1);
+
+                let fakeProgress = 10;
+                const interval = setInterval(() => {
+                  fakeProgress += 10;
+                  if (fakeProgress >= 100) {
+                    clearInterval(interval);
+                    setDbProgress(100);
+                    setTimeout(() => setDbProgress(null), 1000);
+                  } else {
+                    setDbProgress(fakeProgress);
+                  }
+                }, 100);
+
               } catch (err) {
                 console.error("Erro ao consultar o banco:", err);
                 alert("Erro ao buscar envelopes do banco.");
+                setDbProgress(null);
               }
             }}
-            className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-800 cursor-pointer"
+
+            className="bg-green-600 text-white font-semibold px-6 py-2 rounded hover:bg-green-800 cursor-pointer hover:shadow-md"
           >
             Buscar
           </button>
 
           {dbResults.length > 0 && (
-            <table className="table-auto w-full border border-gray-300 mt-6">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="border px-4 py-2 text-left">Assunto</th>
-                  <th className="border px-4 py-2 text-left">Status</th>
-                  <th className="border px-4 py-2 text-left">Responsável</th>
-                  <th className="border px-4 py-2 text-left">PDF</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dbResults.map((item: any, i: number) => (
-                  <tr key={i}>
-                    <td className="border px-4 py-2">{item.EMAIL_SUBJECT}</td>
-                    <td className="border px-4 py-2">{item.STATUS}</td>
-                    <td className="border px-4 py-2">{item.RESPONSAVEL_NOME}</td>
-                    <td className="border px-4 py-2 space-x-2">
-                      <a
-                        href={`/api/download-from-db?envelopeId=${item.ENVELOPE_ID}`}
-                        target="_blank"
-                        className="text-blue-600 hover:underline"
-                      >
-                        Baixar PDF
-                      </a>
-                      <a
-                        href={`/api/download-from-db?envelopeId=${item.ENVELOPE_ID}&inline=true`}
-                        target="_blank"
-                        className="text-green-600 hover:underline"
-                      >
-                        Visualizar
-                      </a>
-
-                    </td>
+            <>
+              <div className="flex justify-between items-center mb-4 mt-4">
+                <button
+                  onClick={() => setPaginaAtual((prev) => Math.max(prev - 1, 1))}
+                  className="px-4 py-2 bg-gray-300 font-semibold rounded disabled:opacity-50 hover:shadow-md cursor-pointer hover:bg-blue-400 hover:text-white"
+                  disabled={paginaAtual === 1}
+                >
+                  Anterior
+                </button>
+                <span>Página {paginaAtual}</span>
+                <button
+                  onClick={() => setPaginaAtual((prev) =>
+                    prev * itensPorPagina < dbResults.length ? prev + 1 : prev
+                  )}
+                  className="px-4 py-2 bg-gray-300 font-semibold rounded disabled:opacity-50 hover:shadow-md cursor-pointer hover:bg-blue-400 hover:text-white"
+                  disabled={paginaAtual * itensPorPagina >= dbResults.length}
+                >
+                  Próxima
+                </button>
+              </div>
+              <table className="table-auto w-full border border-gray-300 mt-6">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border px-4 py-2 text-left">Assunto</th>
+                    <th className="border px-4 py-2 text-left">Status</th>
+                    <th className="border px-4 py-2 text-left">Responsável</th>
+                    <th className="border px-4 py-2 text-left">PDF</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {dbResultsPaginados.map((item: any, i: number) => (
+                    <tr key={i}>
+                      <td className="border px-4 py-2">{item.EMAIL_SUBJECT}</td>
+                      <td className="border px-4 py-2">{item.STATUS}</td>
+                      <td className="border px-4 py-2">{item.RESPONSAVEL_NOME}</td>
+                      <td className="border px-4 py-2 grid items-center text-center">
+                        <a
+                          href={`/api/download-from-db?envelopeId=${item.ENVELOPE_ID}`}
+                          target="_blank"
+                          className="text-blue-600 hover:underline"
+                        >
+                          Baixar
+                        </a>
+                        <a
+                          href={`/api/download-from-db?envelopeId=${item.ENVELOPE_ID}&inline=true`}
+                          target="_blank"
+                          className="text-green-600 hover:underline"
+                        >
+                          Abrir
+                        </a>
+
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </div>
       )}

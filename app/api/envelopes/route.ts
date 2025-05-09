@@ -1,5 +1,6 @@
 process.env.NODE_ORACLEDB_DISABLE_AZURE_CONFIG = "true";
 process.env.NODE_ORACLEDB_DISABLE_OCI_CONFIG = "true";
+process.env.NODE_ORACLEDB_DISABLE_OAUTH_TOKEN = "true";
 
 import { NextRequest } from "next/server";
 import { generateToken } from "@/lib/docusign/token";
