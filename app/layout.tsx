@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "API Docusign",
+  title: "Dashboard Docusign",
   description: "Envelopes/Relatórios",
 };
 

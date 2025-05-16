@@ -18,9 +18,9 @@ export async function GET(req: NextRequest) {
     let startPosition = 0;
     let allEnvelopes: any[] = [];
 
-    const from_date = "2022-08-01";
+    const from_date = "2023-01-01";
     //const to_date = new Date().toISOString().split("T")[0];
-    const to_date = "2022-08-31";
+    const to_date = "2023-12-31";
 
     console.log("🔍 Buscando envelopes de:", from_date, "até", to_date);
 
