@@ -15,36 +15,70 @@ export async function GET(req: NextRequest) {
     const token = await generateToken();
     const accountId = "3d5e52ce-6726-43ea-96ef-5829b5394faa";
 
+    const pageSize = 100;
+    const maxPages = 10;
     let allEnvelopes: any[] = [];
     let startPosition = 0;
-    const pageSize = 100;
+    let currentPage = 1;
 
-    while (true) {
+    const oracledb = require("oracledb");
+    const connection = await oracledb.getConnection({
+      user: process.env.ORACLE_USER,
+      password: process.env.ORACLE_PASSWORD,
+      connectString: process.env.ORACLE_CONNECTION_STRING,
+    });
+
+    while (currentPage <= maxPages) {
       const url = `https://na3.docusign.net/restapi/v2.1/accounts/${accountId}/envelopes?from_date=${from_date}&to_date=${to_date}&status=any&include=recipients,folders&start_position=${startPosition + 1}&count=${pageSize}`;
-      console.log(`➡️ Buscando página a partir de ${startPosition + 1}`);
+      console.log(`Buscando página ${currentPage}, início em ${startPosition + 1}`);
 
-      const res = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-        },
-      });
+      try {
+        const res = await axios.get(url, {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 30000,
+        });
 
-      const envelopes = res.data.envelopes || [];
-      if (envelopes.length === 0) break;
+        const envelopes = res.data.envelopes || [];
+        allEnvelopes = allEnvelopes.concat(envelopes);
+        if (envelopes.length < pageSize) break;
 
-      allEnvelopes = allEnvelopes.concat(envelopes);
-      startPosition += pageSize;
+        startPosition += pageSize;
+        currentPage++;
+        await new Promise((resolve) => setTimeout(resolve, 300)); //evita sobrecarga
 
-      if (envelopes.length < pageSize) break; // última página
+      } catch (err: any) {
+        console.error(`❌ Erro ao buscar página ${currentPage}:`, err.message);
+
+        await connection.execute(
+          `INSERT INTO DOCUSIGN_ERROS_DOWNLOAD (ENVELOPE_ID, MENSAGEM_ERRO)
+       VALUES (:envelopeId, :mensagemErro)`,
+          {
+            envelopeId: `pagina_${currentPage}_start_${startPosition + 1}`,
+            mensagemErro: err.message || JSON.stringify(err),
+          },
+          { autoCommit: true }
+        );
+
+        await connection.close();
+        break; //interrompe a execucao depois do erro
+      }
     }
 
-    console.log("✅ Total final:", allEnvelopes.length);
+    const uniqueEnvelopesMap = new Map();
+    allEnvelopes.forEach(env => {
+      uniqueEnvelopesMap.set(env.envelopeId, env);
+    });
+    const uniqueEnvelopes = Array.from(uniqueEnvelopesMap.values());
 
-    return new Response(JSON.stringify({ envelopes: allEnvelopes }), { status: 200 });
+    console.log("🔍 Total único filtrado:", uniqueEnvelopes.length);
+
+    return new Response(JSON.stringify({ envelopes: uniqueEnvelopes }), { status: 200 });
+
   } catch (error: any) {
+    console.error("❌ ERRO COMPLETO:", error);
     const erroCru = error.response?.data || error.message;
     console.error("❌ ERRO no backend /api/envelopes:", erroCru);
+
     return new Response(JSON.stringify({ error: "Erro ao buscar envelopes", erroCru }), { status: 500 });
   }
 }
