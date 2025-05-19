@@ -18,7 +18,6 @@ export default function DocuSignDashboard() {
   const [statusFilter, setStatusFilter] = useState("");
   const [responsavelFilter, setResponsavelFilter] = useState("");
 
-
   const [progress, setProgress] = useState<number | null>(null);
   const [totalLotes, setTotalLotes] = useState<number>(0);
   const [dbProgress, setDbProgress] = useState<number | null>(null);
@@ -536,10 +535,10 @@ export default function DocuSignDashboard() {
                   setDbProgress(10);
                   const res = await axios.get(`/api/database-envelopes`, {
                     params: {
-                      from_date: fromDate,
-                      to_date: toDate,
-                      status: statusFilter,
-                      responsavel: responsavelFilter,
+                      from_date: fromDate || undefined,
+                      to_date: toDate || undefined,
+                      status: statusFilter || undefined,
+                      responsavel: responsavelFilter || undefined,
                     },
                   });
                   console.log("📦 Resultados do banco:", res.data);

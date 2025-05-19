@@ -8,15 +8,23 @@ import axios from "axios";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const from_date = searchParams.get("from_date") || "2024-01-01";
-  const to_date = searchParams.get("to_date") || new Date().toISOString().split("T")[0];
+  const fromParam = searchParams.get("from_date");
+  const toParam = searchParams.get("to_date");
+
+  const from_date = fromParam ? `${fromParam}T00:00:00` : new Date().getFullYear() + "-01-01T00:00:00";
+  const to_date = toParam ? `${toParam}T23:59:59` : new Date().toISOString().split("T")[0] + "T23:59:59";
+
+  const statusParam = searchParams.get("status");
+  const statusFilter = statusParam && statusParam.trim().toLowerCase() !== "any" ? statusParam : null;
+
+  const responsavelParam = searchParams.get("responsavel") || null;
 
   try {
     const token = await generateToken();
     const accountId = "3d5e52ce-6726-43ea-96ef-5829b5394faa";
 
     const pageSize = 100;
-    const maxPages = 10;
+    const maxPages = 120; //120 × 100 = 12.000
     let allEnvelopes: any[] = [];
     let startPosition = 0;
     let currentPage = 1;
@@ -29,6 +37,7 @@ export async function GET(req: NextRequest) {
     });
 
     while (currentPage <= maxPages) {
+      //const url = `https://na3.docusign.net/restapi/v2.1/accounts/${accountId}/envelopes?from_date=${from_date}&to_date=${to_date}&status=any&include=recipients,folders&start_position=${startPosition + 1}&count=${pageSize}`;
       const url = `https://na3.docusign.net/restapi/v2.1/accounts/${accountId}/envelopes?from_date=${from_date}&to_date=${to_date}&status=any&include=recipients,folders&start_position=${startPosition + 1}&count=${pageSize}`;
       console.log(`Buscando página ${currentPage}, início em ${startPosition + 1}`);
 
@@ -47,7 +56,7 @@ export async function GET(req: NextRequest) {
         await new Promise((resolve) => setTimeout(resolve, 300)); //evita sobrecarga
 
       } catch (err: any) {
-        console.error(`❌ Erro ao buscar página ${currentPage}:`, err.message);
+        console.error(`Erro ao buscar página ${currentPage}:`, err.message);
 
         await connection.execute(
           `INSERT INTO DOCUSIGN_ERROS_DOWNLOAD (ENVELOPE_ID, MENSAGEM_ERRO)
@@ -68,7 +77,15 @@ export async function GET(req: NextRequest) {
     allEnvelopes.forEach(env => {
       uniqueEnvelopesMap.set(env.envelopeId, env);
     });
-    const uniqueEnvelopes = Array.from(uniqueEnvelopesMap.values());
+    let uniqueEnvelopes = Array.from(uniqueEnvelopesMap.values());
+
+    if (statusParam || responsavelParam) {
+      uniqueEnvelopes = uniqueEnvelopes.filter((env: any) => {
+        const statusOk = !statusFilter || env.status?.toLowerCase().includes(statusFilter.toLowerCase());
+        const responsavelOk = !responsavelParam || env.sender?.userName?.toLowerCase().includes(responsavelParam.toLowerCase());
+        return statusOk && responsavelOk;
+      });
+    }
 
     console.log("🔍 Total único filtrado:", uniqueEnvelopes.length);
 
